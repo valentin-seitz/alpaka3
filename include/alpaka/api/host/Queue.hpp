@@ -8,6 +8,7 @@
 #include "alpaka/api/host/Api.hpp"
 #include "alpaka/api/host/Event.hpp"
 #include "alpaka/api/host/exec/OmpBlocks.hpp"
+#include "alpaka/api/host/exec/OmpTasks.hpp"
 #include "alpaka/api/host/exec/Serial.hpp"
 #include "alpaka/api/host/exec/TbbBlocks.hpp"
 #include "alpaka/api/util.hpp"

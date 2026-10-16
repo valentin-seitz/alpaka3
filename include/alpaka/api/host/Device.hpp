@@ -214,6 +214,10 @@ namespace alpaka::onHost
         struct IsExecutorSupportedBy::Op<exec::CpuOmpBlocks, cpu::Device<T_Platform>> : std::true_type
         {
         };
+        template<typename T_Platform>
+        struct IsExecutorSupportedBy::Op<exec::CpuOmpTasks, cpu::Device<T_Platform>> : std::true_type
+        {
+        };
 #endif
 #if ALPAKA_TBB
         template<typename T_Platform>
