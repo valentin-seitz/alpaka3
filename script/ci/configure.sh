@@ -158,6 +158,7 @@ done
 CMAKE_ARGS+=(
     -Dalpaka_EXEC_CpuSerial="${APCI_EXEC_CPU_SERIAL}"
     -Dalpaka_EXEC_CpuOmpBlocks=ON
+    -Dalpaka_EXEC_CpuOmpTasks=ON
     -Dalpaka_EXEC_TbbBlocks=ON
     -Dalpaka_EXEC_GpuCuda=ON
     -Dalpaka_EXEC_GpuHip=ON
