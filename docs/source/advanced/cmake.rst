@@ -378,6 +378,12 @@ Executors
 
      Enable the OpenMP CPU blocks executor `exec::cpuOmpBlocks`.
 
+``alpaka_EXEC_CpuOmpTasks``
+  .. code-block:: markdown
+
+     Enable the OpenMP CPU tasks executor `exec::cpuOmpTasks`.
+     The number of OpenMP tasks can be set at runtime with the environment variable ``ALPAKA_OMP_TASKS_NUM``.
+
 ``alpaka_EXEC_TbbBlocks``
   .. code-block:: markdown
 

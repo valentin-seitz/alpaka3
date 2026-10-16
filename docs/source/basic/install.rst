@@ -235,6 +235,7 @@ To use a specific accelerator in alpaka, two steps are required.
 
 By default, only the host API is available which allows to use the executor 'serial' to run on CPUs without using multithreading.
 If OpenMP is available on the system, additionally the executor `cpuOmpBlocks` can be used to run on all cores of the CPU.
+The executor `cpuOmpTasks` distributes the blocks with an OpenMP taskloop, the number of tasks can be set with the environment variable `ALPAKA_OMP_TASKS_NUM`.
 If oneAPI TBB is available on the system, additionally the executor `cpuTbbBlocks` can be used to run on all cores of the CPU.
 CMake option `alpaka_DEP_*` controls whether a parallelization framework is used and introduces a dependency on third-party libraries.
 This allows the usage of the corresponding executor e.g. `gpuCuda`, `gpuHip` or `oneApi`
