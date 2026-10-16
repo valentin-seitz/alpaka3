@@ -61,16 +61,27 @@ void measure(
     size_t numBlocks,
     int reps,
     int warmup,
+    double budgetSec,
     T_Fn&& launch)
 {
+    std::cerr << "  " << execName << " " << kernelName << " blocks=" << numBlocks << std::endl;
+    /* Stop early once the time budget is used up (at least one measured repetition), so heavy configurations
+     * (many blocks, few threads) do not take forever. Warmup is cut to one run if a single launch is slow. */
     std::vector<double> times;
+    double spent = 0.0;
     for(int i = 0; i < warmup + reps; ++i)
     {
         auto start = std::chrono::steady_clock::now();
         launch();
         auto end = std::chrono::steady_clock::now();
+        double const us = std::chrono::duration<double, std::micro>(end - start).count();
+        spent += us * 1e-6;
         if(i >= warmup)
-            times.push_back(std::chrono::duration<double, std::micro>(end - start).count());
+            times.push_back(us);
+        else if(us * 1e-6 > budgetSec / 10.0)
+            warmup = i + 1; // slow launch: one warmup is enough
+        if(i >= warmup && spent > budgetSec)
+            break;
     }
     std::sort(times.begin(), times.end());
     double const minT = times.front();
@@ -82,7 +93,7 @@ void measure(
               << (medT * 1000.0 / static_cast<double>(numBlocks)) << std::endl;
 }
 
-void runExecutor(auto const exec, int reps, int warmup, size_t maxBlocks, uint32_t workUnit)
+void runExecutor(auto const exec, int reps, int warmup, double budgetSec, size_t maxBlocks, uint32_t workUnit)
 {
     auto devSelector = onHost::makeDeviceSelector(onHost::DeviceSpec{api::host, deviceKind::cpu});
     onHost::Device dev = devSelector.makeDevice(0);
@@ -97,13 +108,13 @@ void runExecutor(auto const exec, int reps, int warmup, size_t maxBlocks, uint32
         auto frameSpec = onHost::FrameSpec{numBlocks, size_t{1}, exec};
 
         auto const empty = KernelBundle{EmptyKernel{}};
-        measure(execName, "empty", numBlocks, reps, warmup, [&] { queue.enqueue(frameSpec, empty); });
+        measure(execName, "empty", numBlocks, reps, warmup, budgetSec, [&] { queue.enqueue(frameSpec, empty); });
 
         auto const balanced = KernelBundle{BalancedKernel{}, out};
-        measure(execName, "balanced", numBlocks, reps, warmup, [&] { queue.enqueue(frameSpec, balanced); });
+        measure(execName, "balanced", numBlocks, reps, warmup, budgetSec, [&] { queue.enqueue(frameSpec, balanced); });
 
         auto const imbalanced = KernelBundle{ImbalancedKernel{}, out, workUnit};
-        measure(execName, "imbalanced", numBlocks, reps, warmup, [&] { queue.enqueue(frameSpec, imbalanced); });
+        measure(execName, "imbalanced", numBlocks, reps, warmup, budgetSec, [&] { queue.enqueue(frameSpec, imbalanced); });
     }
 }
 
@@ -112,9 +123,10 @@ auto main(int argc, char* argv[]) -> int
     int reps = 50;
     int warmup = 5;
     size_t maxBlocks = 1000000;
-    uint32_t workUnit = 200;
+    uint32_t workUnit = 20;
+    double budgetSec = 1.0;
     int opt;
-    while((opt = getopt(argc, argv, "hr:w:m:u:")) != -1)
+    while((opt = getopt(argc, argv, "hr:w:m:u:t:")) != -1)
     {
         switch(opt)
         {
@@ -127,19 +139,22 @@ auto main(int argc, char* argv[]) -> int
         case 'm':
             maxBlocks = std::stoul(optarg);
             break;
+        case 't':
+            budgetSec = std::stod(optarg);
+            break;
         case 'u':
             workUnit = static_cast<uint32_t>(std::stoul(optarg));
             break;
         default:
             std::cerr << "usage: " << argv[0]
-                      << " [-r repetitions] [-w warmup] [-m max blocks (powers of 10)] [-u work units per imbalance step]\n"
+                      << " [-r repetitions] [-w warmup] [-m max blocks (powers of 10)] [-u work units per imbalance step] [-t time budget per measurement in s]\n"
                       << "env: ALPAKA_OMP_TASKS_NUM (cpuOmpTasks number of tasks), OMP_NUM_THREADS\n";
             return opt == 'h' ? EXIT_SUCCESS : EXIT_FAILURE;
         }
     }
 
     std::cout << "executor,tasks_num,omp_threads,kernel,blocks,min_us,median_us,median_ns_per_block" << std::endl;
-    runExecutor(exec::cpuOmpBlocks, reps, warmup, maxBlocks, workUnit);
-    runExecutor(exec::cpuOmpTasks, reps, warmup, maxBlocks, workUnit);
+    runExecutor(exec::cpuOmpBlocks, reps, warmup, budgetSec, maxBlocks, workUnit);
+    runExecutor(exec::cpuOmpTasks, reps, warmup, budgetSec, maxBlocks, workUnit);
     return EXIT_SUCCESS;
 }

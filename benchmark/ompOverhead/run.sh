@@ -11,7 +11,7 @@ TASKS=${TASKS:-"0 $ncpu $((ncpu * 4)) $((ncpu * 16))"}
 first=1
 for t in $THREADS; do
     for n in $TASKS; do
-        echo "threads=$t tasks=$n" >&2
+        echo "== threads=$t tasks=$n" >&2
         if [ "$n" = 0 ]; then unset ALPAKA_OMP_TASKS_NUM; else export ALPAKA_OMP_TASKS_NUM=$n; fi
         if [ $first = 1 ]; then
             OMP_NUM_THREADS=$t "$bin" ${EXTRA_ARGS:-} >"$out"; first=0
