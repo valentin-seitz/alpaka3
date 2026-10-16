@@ -16,3 +16,4 @@ alpaka_install_catch2()
 
 add_subdirectory("babelstream/")
 add_subdirectory("HACCmk")
+add_subdirectory("ompOverhead")
