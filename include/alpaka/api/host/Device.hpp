@@ -20,6 +20,7 @@
 #include "alpaka/tag.hpp"
 #include "alpaka/utility.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <sstream>
@@ -384,6 +385,55 @@ namespace alpaka::onHost
                 return ThreadSpec{numThreadBlocks, numThreads, frameSpec.getExecutor()};
             }
         };
+
+#if ALPAKA_OMP
+        /** Create more thread blocks than frames if required to feed all OpenMP tasks.
+         *
+         * exec::CpuOmpTasks executes one block per task, therefore the number of blocks limits the available
+         * parallelism. If the frame spec provides fewer blocks than the number of tasks (ALPAKA_OMP_TASKS_NUM, if
+         * unset the number of OpenMP threads) the blocks are increased along the first dimension. A FrameSpec does
+         * not guarantee a number of blocks, kernels must therefore not depend on it. The number of blocks is never
+         * larger than the number of elements described by the frame spec.
+         */
+        template<
+            typename T_Platform,
+            alpaka::concepts::Vector T_NumFrames,
+            alpaka::concepts::Vector T_FrameExtents,
+            alpaka::concepts::KernelBundle T_KernelBundle>
+        struct AdjustThreadSpec::
+            Op<cpu::Device<T_Platform>, FrameSpec<T_NumFrames, T_FrameExtents, exec::CpuOmpTasks>, T_KernelBundle>
+        {
+            using FrameSpecType = FrameSpec<T_NumFrames, T_FrameExtents, exec::CpuOmpTasks>;
+
+            auto operator()(
+                cpu::Device<T_Platform> const& device,
+                FrameSpecType const& frameSpec,
+                T_KernelBundle const& kernelBundle) const
+            {
+                alpaka::unused(device, kernelBundle);
+                ALPAKA_LOG_FUNCTION(alpaka::onHost::logger::kernel);
+
+                using IdxType = typename T_NumFrames::value_type;
+                typename T_NumFrames::UniVec numBlocks = frameSpec.getNumFrames();
+                auto const numThreads = Vec<IdxType, T_FrameExtents::dim()>::fill(1);
+
+                auto numTasks = static_cast<IdxType>(internal::getOmpTasksNumTasks());
+                if(numTasks == 0)
+                    numTasks = static_cast<IdxType>(::omp_get_max_threads());
+
+                IdxType const numFrames = numBlocks.product();
+                IdxType const numElements = numFrames * frameSpec.getFrameExtents().product();
+                IdxType const wantedBlocks = std::min(numTasks, numElements);
+                if(numFrames > 0 && numFrames < wantedBlocks)
+                {
+                    // round up to reach at least wantedBlocks
+                    IdxType const factor = (wantedBlocks + numFrames - 1) / numFrames;
+                    numBlocks[0] *= factor;
+                }
+                return ThreadSpec{numBlocks, numThreads, frameSpec.getExecutor()};
+            }
+        };
+#endif
 
         template<typename T_Platform>
         struct GetDeviceProperties::Op<cpu::Device<T_Platform>>
