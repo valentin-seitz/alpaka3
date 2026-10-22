@@ -17,9 +17,11 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <tuple>
+#include <vector>
 #include <type_traits>
 
 #if ALPAKA_OMP
@@ -45,6 +47,19 @@ namespace alpaka::onHost
                 return (end != env && *end == '\0') ? static_cast<std::size_t>(value) : 0u;
             }();
             return numTasks;
+        }
+
+        /** Enables debug output of exec::CpuOmpTasks if the environment variable ALPAKA_OMP_TASKS_DEBUG is set to a
+         * value other than empty or "0".
+         */
+        inline bool isOmpTasksDebug()
+        {
+            static bool const enabled = []()
+            {
+                char const* env = std::getenv("ALPAKA_OMP_TASKS_DEBUG");
+                return env != nullptr && *env != '\0' && !(env[0] == '0' && env[1] == '\0');
+            }();
+            return enabled;
         }
     } // namespace internal
 
@@ -79,6 +94,13 @@ namespace alpaka::onHost
                     auto const blockCount = threadSpec.getNumBlocks();
                     using ThreadIdxType = typename NumThreadsVecType::value_type;
                     ThreadIdxType const numBlocks = blockCount.product();
+
+                    bool const debug = internal::isOmpTasksDebug();
+                    /* Number of blocks executed per team thread, only used if debugging is enabled. The vector lives
+                     * in the frame of the thread creating the tasks. */
+                    std::vector<uint64_t> blocksPerThread;
+                    if(debug)
+                        blocksPerThread.assign(static_cast<std::size_t>(::omp_get_num_threads()), 0u);
 
                     /* Tasks can be executed by any thread of the team, therefore all block local state is created per
                      * block inside the task. */
@@ -117,6 +139,13 @@ namespace alpaka::onHost
                             additionalDict));
 
                         blockIdx = mapToND(blockCount, i);
+                        if(debug)
+                        {
+                            auto const tid = static_cast<std::size_t>(::omp_get_thread_num());
+                            uint64_t* counter = &blocksPerThread[tid];
+#    pragma omp atomic
+                            *counter += 1u;
+                        }
                         kernelBundle(acc);
                     };
 
@@ -126,6 +155,18 @@ namespace alpaka::onHost
                      * implicit taskgroup, the creating thread therefore returns after all blocks are finished. */
 #    pragma omp single nowait
                     {
+                        if(debug)
+                            std::fprintf(
+                                stderr,
+                                "[alpaka OmpTasks] numBlocks=%llu ALPAKA_OMP_TASKS_NUM=%llu%s team_threads=%d "
+                                "max_threads=%d creator_thread=%d in_final=%d\n",
+                                static_cast<unsigned long long>(numBlocks),
+                                static_cast<unsigned long long>(numTasks),
+                                numTasks == 0 ? " (unset, runtime decides)" : "",
+                                ::omp_get_num_threads(),
+                                ::omp_get_max_threads(),
+                                ::omp_get_thread_num(),
+                                ::omp_in_final());
                         if(numTasks != 0)
                         {
 #    pragma omp taskloop default(shared) num_tasks(numTasks)
@@ -138,9 +179,30 @@ namespace alpaka::onHost
                             for(ThreadIdxType i = 0; i < numBlocks; ++i)
                                 runBlock(i);
                         }
+                        if(debug)
+                        {
+                            std::size_t activeThreads = 0u;
+                            for(auto const c : blocksPerThread)
+                                activeThreads += c != 0u ? 1u : 0u;
+                            std::fprintf(
+                                stderr,
+                                "[alpaka OmpTasks] finished: %zu of %zu threads executed blocks. blocks per thread:",
+                                activeThreads,
+                                blocksPerThread.size());
+                            for(auto const c : blocksPerThread)
+                                std::fprintf(stderr, " %llu", static_cast<unsigned long long>(c));
+                            std::fprintf(stderr, "\n");
+                        }
                     }
                 };
 
+                if(internal::isOmpTasksDebug())
+                    std::fprintf(
+                        stderr,
+                        "[alpaka OmpTasks] launch: in_parallel=%d (%s)\n",
+                        ::omp_in_parallel(),
+                        ::omp_in_parallel() != 0 ? "collective call, only one thread creates the tasks"
+                                                 : "opening own parallel region");
                 if(::omp_in_parallel() != 0)
                 {
                     /* We are already in a OpenMP parllel section, do not start a new section to avoid nested
