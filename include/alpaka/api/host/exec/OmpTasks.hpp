@@ -8,7 +8,6 @@
 #include "alpaka/api/host/IdxLayer.hpp"
 #include "alpaka/api/host/block/mem/SingleThreadStaticShared.hpp"
 #include "alpaka/api/host/block/sync/NoOp.hpp"
-#include "alpaka/api/host/hwloc/utility.hpp"
 #include "alpaka/core/Dict.hpp"
 #include "alpaka/core/common.hpp"
 #include "alpaka/meta/NdLoop.hpp"
@@ -54,10 +53,7 @@ namespace alpaka::onHost
         template<onHost::concepts::ThreadSpec T_ThreadSpec>
         struct OmpTasks
         {
-            constexpr OmpTasks(T_ThreadSpec threadSpec, uint32_t numaIdx, bool setThreadAffinity)
-                : m_threadSpec{std::move(threadSpec)}
-                , m_numaIdx{numaIdx}
-                , m_setThreadAffinity{setThreadAffinity}
+            constexpr OmpTasks(T_ThreadSpec threadSpec) : m_threadSpec{std::move(threadSpec)}
             {
                 if(m_threadSpec.getNumThreads().product() != 1u)
                 {
@@ -78,23 +74,8 @@ namespace alpaka::onHost
             {
                 using NumThreadsVecType = typename T_ThreadSpec::NumThreadsVecType;
 
-                bool shouldSetThreadAffinity = m_setThreadAffinity;
-
-                /* Do not change the affinity if we are executed within a OpenMP parallel section, the user should keep
-                 * the control over it.
-                 */
-                if(::omp_in_parallel() != 0)
-                    shouldSetThreadAffinity = false;
-
-                auto fn = [&kernelBundle,
-                           &dict,
-                           threadSpec = m_threadSpec,
-                           numaIdx = m_numaIdx,
-                           setThreadAffinity = shouldSetThreadAffinity]()
+                auto fn = [&kernelBundle, &dict, threadSpec = m_threadSpec]()
                 {
-                    if(setThreadAffinity)
-                        internal::hwloc::setThreadAffinity(numaIdx);
-
                     auto const blockCount = threadSpec.getNumBlocks();
                     using ThreadIdxType = typename NumThreadsVecType::value_type;
                     ThreadIdxType const numBlocks = blockCount.product();
@@ -178,17 +159,16 @@ namespace alpaka::onHost
 
         private:
             T_ThreadSpec m_threadSpec;
-            uint32_t m_numaIdx;
-            bool m_setThreadAffinity;
         };
     } // namespace cpu
 
     inline auto makeAcc(
         alpaka::onHost::concepts::ThreadSpec auto const& threadSpec,
-        uint32_t numaIdx,
-        bool setThreadAffinity) requires std::same_as<ALPAKA_TYPEOF(threadSpec.getExecutor()), exec::CpuOmpTasks>
+        uint32_t /* numaIdx */,
+        bool /* setThreadAffinity */) requires std::same_as<ALPAKA_TYPEOF(threadSpec.getExecutor()), exec::CpuOmpTasks>
     {
-        return cpu::OmpTasks(threadSpec, numaIdx, setThreadAffinity);
+        // thread affinity is controlled by the OpenMP runtime (OMP_PLACES, OMP_PROC_BIND)
+        return cpu::OmpTasks(threadSpec);
     }
 } // namespace alpaka::onHost
 
