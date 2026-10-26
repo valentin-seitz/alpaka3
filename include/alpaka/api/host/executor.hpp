@@ -37,6 +37,16 @@ namespace alpaka
 
         constexpr CpuOmpBlocks cpuOmpBlocks;
 
+        struct CpuOmpBlockTasks
+        {
+            static std::string getName()
+            {
+                return "CpuOmpBlockTasks";
+            }
+        };
+
+        constexpr CpuOmpBlockTasks cpuOmpBlockTasks;
+
         struct CpuTbbBlocks
         {
             static std::string getName()
@@ -63,6 +73,11 @@ namespace alpaka
             struct IsSeqExecutor<CpuTbbBlocks> : std::true_type
             {
             };
+
+            template<>
+            struct IsSeqExecutor<CpuOmpBlockTasks> : std::true_type
+            {
+            };
         } // namespace trait
     } // namespace exec
 
@@ -80,6 +95,11 @@ namespace alpaka
 
         template<>
         struct IsExecutor<exec::CpuTbbBlocks> : std::true_type
+        {
+        };
+
+        template<>
+        struct IsExecutor<exec::CpuOmpBlockTasks> : std::true_type
         {
         };
 
@@ -137,6 +157,24 @@ namespace alpaka::onAcc::trait
     struct GetAtomicImpl::Op<alpaka::exec::CpuTbbBlocks, onAcc::scope::Block>
     {
         constexpr decltype(auto) operator()(alpaka::exec::CpuTbbBlocks const, onAcc::scope::Block const) const
+        {
+            return alpaka::onAcc::internal::nonAtomic;
+        }
+    };
+
+    template<typename T_AtomicScope>
+    struct GetAtomicImpl::Op<alpaka::exec::CpuOmpBlockTasks, T_AtomicScope>
+    {
+        constexpr decltype(auto) operator()(alpaka::exec::CpuOmpBlockTasks const, T_AtomicScope const) const
+        {
+            return alpaka::onAcc::internal::stlAtomic;
+        }
+    };
+
+    template<>
+    struct GetAtomicImpl::Op<alpaka::exec::CpuOmpBlockTasks, onAcc::scope::Block>
+    {
+        constexpr decltype(auto) operator()(alpaka::exec::CpuOmpBlockTasks const, onAcc::scope::Block const) const
         {
             return alpaka::onAcc::internal::nonAtomic;
         }
