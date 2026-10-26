@@ -103,6 +103,7 @@ Executors
 
      exec::cpuSerial
      exec::cpuOmpBlocks
+     exec::cpuOmpBlockTasks
      exec::cpuTbbBlocks
      exec::gpuCuda
      exec::gpuHip

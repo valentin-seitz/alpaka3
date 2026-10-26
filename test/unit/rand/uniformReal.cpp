@@ -229,7 +229,8 @@ TEMPLATE_LIST_TEST_CASE("UniformReal on std engines", "", TestBackends)
     auto cfg = TestType::makeDict();
     auto exec = alpaka::getExecutor(cfg);
     using T_ExecType = ALPAKA_TYPEOF(exec);
-    using T_SupportedHostExecutors = Tuple<exec::CpuSerial, exec::CpuOmpBlocks, exec::CpuTbbBlocks>;
+    using T_SupportedHostExecutors
+        = Tuple<exec::CpuSerial, exec::CpuOmpBlocks, exec::CpuOmpBlockTasks, exec::CpuTbbBlocks>;
     using T_Engines = Tuple<std::mt19937, std::mt19937_64>;
     if constexpr(meta::Contains<T_SupportedHostExecutors, T_ExecType>::value)
     {

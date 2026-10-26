@@ -325,7 +325,7 @@ OpenMP
 ``alpaka_DEP_OMP``
   .. code-block:: markdown
 
-     Enable OpenMP CPU acceleration and the usage of the executor `exec::cpuOmpBlocks`.
+     Enable OpenMP CPU acceleration and the usage of the executors `exec::cpuOmpBlocks` and `exec::cpuOmpBlockTasks`.
      Note: OpenMP offloading is currently not supported.
 
 Numa Awareness
@@ -377,6 +377,12 @@ Executors
   .. code-block:: markdown
 
      Enable the OpenMP CPU blocks executor `exec::cpuOmpBlocks`.
+
+``alpaka_EXEC_CpuOmpBlockTasks``
+  .. code-block:: markdown
+
+     Enable the OpenMP CPU block tasks executor `exec::cpuOmpBlockTasks`.
+     Each thread block is executed as an OpenMP task, the task granularity is controlled by the frame extent.
 
 ``alpaka_EXEC_TbbBlocks``
   .. code-block:: markdown
