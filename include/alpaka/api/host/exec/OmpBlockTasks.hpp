@@ -116,16 +116,20 @@ namespace alpaka::onHost
                     {
                         for(ThreadIdxType i = 0; i < linearNumBlocks; ++i)
                         {
-#    pragma omp task default(shared) firstprivate(i) threadset(omp_pool)
+#    pragma omp task default(shared) firstprivate(i)
                             executeBlock(i);
                         }
                     }
                 };
 
-                spawnTasks();
-                
-                #pragma omp taskwait
-            
+                if(::omp_in_parallel() != 0)
+                    spawnTasks();
+                else
+                {
+#    pragma omp parallel
+#    pragma omp single
+                    spawnTasks();
+                }
             }
 
         private:
