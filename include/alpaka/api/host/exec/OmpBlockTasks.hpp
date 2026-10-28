@@ -116,7 +116,7 @@ namespace alpaka::onHost
                     {
                         for(ThreadIdxType i = 0; i < linearNumBlocks; ++i)
                         {
-#    pragma omp task default(shared) firstprivate(i)
+#    pragma omp task default(shared) firstprivate(i) threadset(omp_pool)
                             executeBlock(i);
                         }
                     }
