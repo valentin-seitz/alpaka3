@@ -9,7 +9,9 @@
 #include "alpaka/api/host/block/mem/SingleThreadStaticShared.hpp"
 #include "alpaka/api/host/block/sync/NoOp.hpp"
 #include "alpaka/api/host/executor.hpp"
+#include "alpaka/api/host/ompThreadset.hpp"
 #include "alpaka/core/Dict.hpp"
+#include "alpaka/core/TaskQueue.hpp"
 #include "alpaka/core/common.hpp"
 #include "alpaka/onAcc/Acc.hpp"
 #include "alpaka/onHost/ThreadSpec.hpp"
@@ -57,6 +59,11 @@ namespace alpaka::onHost
              * If the method is called from within an OpenMP parallel region (e.g. from within a task or a single
              * construct), the calling thread creates the tasks and the tasks are executed by the threads of the
              * enclosing team. The call is not collective, each calling thread executes the full kernel.
+             * If the method is called from within an operation of a task queue (e.g. queueKind::ompFreeAgent) no
+             * parallel region is opened, the calling thread creates the tasks.
+             *
+             * If the OpenMP runtime supports free-agent threads (OpenMP 6.0) the tasks are created with
+             * `threadset(omp_pool)` and can be executed by free-agent threads too.
              *
              * The method returns after all tasks of the kernel are finished.
              */
@@ -116,13 +123,13 @@ namespace alpaka::onHost
                     {
                         for(ThreadIdxType i = 0; i < linearNumBlocks; ++i)
                         {
-#    pragma omp task default(shared) firstprivate(i)
+#    pragma omp task default(shared) firstprivate(i) ALPAKA_OMP_THREADSET_POOL
                             executeBlock(i);
                         }
                     }
                 };
 
-                if(::omp_in_parallel() != 0)
+                if(::omp_in_parallel() != 0 || core::TaskQueue::isInTask())
                     spawnTasks();
                 else
                 {

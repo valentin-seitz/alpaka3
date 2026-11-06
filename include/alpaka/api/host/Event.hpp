@@ -18,6 +18,7 @@
 #include <cstring>
 #include <future>
 #include <iostream>
+#include <memory>
 #include <sstream>
 
 namespace alpaka::onHost
@@ -87,6 +88,10 @@ namespace alpaka::onHost
             std::size_t m_lastReadyEnqueueCount = 0u;
             bool m_timingEnabled = false;
             std::chrono::steady_clock::time_point m_timestamp;
+            //!< Dependency token signaled by the last enqueue if it was enqueued into a task queue, else nullptr.
+            std::shared_ptr<char> m_taskQueueToken;
+            //!< Scheduler of the task queue which signals m_taskQueueToken.
+            void const* m_taskQueueSchedulerId = nullptr;
 
             friend struct alpaka::internal::GetName;
 

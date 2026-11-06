@@ -13,6 +13,7 @@
 #include "alpaka/api/host/exec/TbbBlocks.hpp"
 #include "alpaka/api/util.hpp"
 #include "alpaka/core/CallbackThread.hpp"
+#include "alpaka/core/TaskQueue.hpp"
 #include "alpaka/core/alignedAlloc.hpp"
 #include "alpaka/interface.hpp"
 #include "alpaka/internal/interface.hpp"
@@ -81,6 +82,12 @@ namespace alpaka::onHost
 
             Handle<T_Device> m_device;
             std::shared_ptr<core::CallbackThread> m_sharedCallbackThread;
+            /** Optional task based execution backend.
+             *
+             * If set, all operations are submitted to the task queue instead of the callback thread.
+             * Only used for non-blocking queues, must be set before the first operation is submitted.
+             */
+            std::shared_ptr<core::TaskQueue> m_taskQueue;
             uint32_t m_idx = 0u;
             uint32_t m_numaIdx = 0u;
             bool m_isBlocking{false};
@@ -150,6 +157,8 @@ namespace alpaka::onHost
                     // return by moving the f since it is move-only
                     return f;
                 }
+                if(m_taskQueue)
+                    return m_taskQueue->submit(std::forward<T_Fn>(fn));
                 // enqueue the task into the worker thread, callers can wait/chain later.
                 return m_sharedCallbackThread->submit(std::forward<T_Fn>(fn));
             }
@@ -243,6 +252,10 @@ namespace alpaka::onHost
                     std::lock_guard lock(m_mutex);
                     m_sharedCallbackThread->submit(task);
                 }
+                else if(m_taskQueue)
+                {
+                    m_taskQueue->submit(task);
+                }
                 else
                 {
                     m_sharedCallbackThread->submit(task);
@@ -290,6 +303,10 @@ namespace alpaka::onHost
                     // check if the queue is currently executing a blocking task
                     return m_blockingTaskExecutionDepth.load() == 0u;
                 }
+                else if(m_taskQueue)
+                {
+                    return m_taskQueue->isEmpty();
+                }
                 else
                 {
                     return m_sharedCallbackThread->isEmpty();
@@ -306,6 +323,7 @@ namespace alpaka::onHost
             friend struct alpaka::internal::GetApi;
             friend struct internal::AllocDeferred;
             friend struct internal::IgnoreVisibility;
+            friend struct internal::MakeQueue;
         };
     } // namespace cpu
 
@@ -363,26 +381,46 @@ namespace alpaka::onHost
                         std::promise<void> p;
                         p.set_value();
                         event.m_future = p.get_future();
+                        event.m_taskQueueToken = nullptr;
+                        event.m_taskQueueSchedulerId = nullptr;
                     }
                     else
                     {
                         auto sharedEvent = event.getSharedPtr();
-                        // Enqueue a task that only resets the events flag if it is completed.
-                        event.m_future = queue.submit(
-                            [sharedEvent, enqueueCount]() mutable
-                            {
-                                auto const timestamp = std::chrono::steady_clock::now();
-                                std::unique_lock<std::mutex> lk2(sharedEvent->m_mutex);
+                        // Task that only resets the events flag if it is completed.
+                        auto eventTask = [sharedEvent, enqueueCount]() mutable
+                        {
+                            auto const timestamp = std::chrono::steady_clock::now();
+                            std::unique_lock<std::mutex> lk2(sharedEvent->m_mutex);
 
-                                // Nothing to do if it has been re-enqueued to a later position in the queue.
-                                if(enqueueCount == sharedEvent->m_enqueueCount)
-                                {
-                                    if(sharedEvent->m_timingEnabled)
-                                        sharedEvent->m_timestamp = timestamp;
-                                    sharedEvent->m_lastReadyEnqueueCount
-                                        = std::max(enqueueCount, sharedEvent->m_lastReadyEnqueueCount);
-                                }
-                            });
+                            // Nothing to do if it has been re-enqueued to a later position in the queue.
+                            if(enqueueCount == sharedEvent->m_enqueueCount)
+                            {
+                                if(sharedEvent->m_timingEnabled)
+                                    sharedEvent->m_timestamp = timestamp;
+                                sharedEvent->m_lastReadyEnqueueCount
+                                    = std::max(enqueueCount, sharedEvent->m_lastReadyEnqueueCount);
+                            }
+                        };
+                        if(queue.m_taskQueue)
+                        {
+                            /* The token is signaled by the event task, task queues sharing the scheduler can wait for
+                             * the token instead of blocking on the future. */
+                            auto token = std::make_shared<char>();
+                            // the token is captured to keep the address unique until the task is finished
+                            event.m_future = queue.m_taskQueue->submit(
+                                [eventTask = std::move(eventTask), token]() mutable { eventTask(); },
+                                nullptr,
+                                token.get());
+                            event.m_taskQueueToken = std::move(token);
+                            event.m_taskQueueSchedulerId = queue.m_taskQueue->getSchedulerId();
+                        }
+                        else
+                        {
+                            event.m_future = queue.submit(std::move(eventTask));
+                            event.m_taskQueueToken = nullptr;
+                            event.m_taskQueueSchedulerId = nullptr;
+                        }
                     }
                 }
             }
@@ -413,6 +451,18 @@ namespace alpaka::onHost
                             std::shared_future sFuture = event.m_future;
                             eventLock.unlock();
                             sFuture.get();
+                        }
+                        else if(
+                            queue.m_taskQueue && event.m_taskQueueToken
+                            && event.m_taskQueueSchedulerId == queue.m_taskQueue->getSchedulerId())
+                        {
+                            /* The event was enqueued into a task queue with the same scheduler, express the wait as
+                             * dependency instead of blocking a thread. The token is captured to keep it alive until
+                             * the dependency is resolved.
+                             */
+                            auto token = event.m_taskQueueToken;
+                            eventLock.unlock();
+                            queue.m_taskQueue->submit([token]() {}, token.get());
                         }
                         else
                         {
